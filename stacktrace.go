@@ -20,7 +20,8 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/palantir/stacktrace/cleanpath"
+	"github.com/fubotv/stacktrace/cleanpath"
+	"runtime/debug"
 )
 
 /*
@@ -183,6 +184,7 @@ type stacktrace struct {
 	file     string
 	function string
 	line     int
+	stack    []byte
 }
 
 func create(cause error, code ErrorCode, msg string, vals ...interface{}) error {
@@ -191,10 +193,18 @@ func create(cause error, code ErrorCode, msg string, vals ...interface{}) error 
 		code = GetCode(cause)
 	}
 
+	var stack []byte
+	if err, ok := cause.(*stacktrace); ok {
+		stack, err.stack = err.stack, []byte{}
+	} else {
+		stack = debug.Stack()
+	}
+
 	err := &stacktrace{
 		message: fmt.Sprintf(msg, vals...),
 		cause:   cause,
 		code:    code,
+		stack:   stack,
 	}
 
 	// Caller of create is NewError or Propagate, so user's code is 2 up.
@@ -235,15 +245,25 @@ func shortFuncName(f *runtime.Func) string {
 	return shortName
 }
 
-func (st *stacktrace) Error() string {
-	return fmt.Sprint(st)
+func Stack(err error) string {
+	if st, ok := err.(*stacktrace); ok {
+		return st.Stack()
+	}
+
+	return ""
 }
 
-// ExitCode returns the exit code associated with the stacktrace error based on its error code. If the error code is
-// NoCode, return 1 (default); otherwise, returns the value of the error code.
-func (st *stacktrace) ExitCode() int {
-	if st.code == NoCode {
-		return 1
-	}
-	return int(st.code)
+func (st *stacktrace) Error() string {
+	return fmt.Sprint([]interface{}{
+		st.message,
+		st.cause,
+		st.code,
+		st.file,
+		st.function,
+		st.line,
+	})
+}
+
+func (st *stacktrace) Stack() string {
+	return fmt.Sprintf("%s\n%s", st.message, string(st.stack))
 }
